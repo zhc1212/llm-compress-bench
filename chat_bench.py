@@ -902,11 +902,16 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         args.model_path,
         torch_dtype=dtype,
-        device_map=args.device,
+        device_map="auto",
         trust_remote_code=True,
         attn_implementation="sdpa",
     )
     model.eval()
+    # Detect device for generation input placement
+    if hasattr(model, "model") and hasattr(model.model, "embed_tokens"):
+        args.device = str(model.model.embed_tokens.weight.device)
+    elif hasattr(model, "device"):
+        args.device = str(model.device)
     print(f"Model loaded in {time.time() - t0:.1f}s\n")
 
     # Run benchmark

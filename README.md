@@ -92,7 +92,7 @@ Uses custom task YAMLs in `configs/tasks/` with `enable_thinking=true`, sampling
 
 ### Chat Quality Benchmark
 
-32 heuristic-scored prompts across 8 categories (no API keys needed):
+30 heuristic-scored prompts across 8 categories (no API keys needed):
 
 ```bash
 python chat_bench.py --model_path <path> --tag "my model" --dtype bfloat16
