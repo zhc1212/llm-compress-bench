@@ -1,0 +1,71 @@
+# Calibration data mix — 11 sources for SVD compression
+# Used by: python prepare_data.py --mode calibration --config configs/calibration_mix.yaml
+#
+# Total: 4096 samples × 2048 tokens = ~8.4M tokens (default)
+sources:
+  sharegpt_chat:
+    hf_id: shareAI/ShareGPT-Chinese-English-90k
+    ratio: 0.20
+    format: chat
+    data_files:
+      - sharegpt_jsonl/common_zh_70k.jsonl
+      - sharegpt_jsonl/common_en_70k.jsonl
+  zh_wikipedia:
+    hf_id: wikimedia/wikipedia
+    config: "20231101.zh"
+    split: train
+    ratio: 0.15
+    format: text
+  en_wikipedia:
+    hf_id: wikimedia/wikipedia
+    config: "20231101.en"
+    split: train
+    ratio: 0.15
+    format: text
+  en_fineweb_edu:
+    hf_id: HuggingFaceFW/fineweb-edu
+    split: train
+    ratio: 0.10
+    format: text
+    streaming: true
+  zh_fineweb_edu:
+    hf_id: opencsg/Fineweb-Edu-Chinese-V2.1
+    split: train
+    ratio: 0.08
+    format: text
+    streaming: true
+  skypile:
+    hf_id: Skywork/SkyPile-150B
+    split: train
+    ratio: 0.07
+    format: text
+    streaming: true
+  mmlu_train:
+    hf_id: cais/mmlu
+    config: auxiliary_train
+    split: train
+    ratio: 0.07
+    format: mcq_en
+  ceval_train:
+    hf_id: ceval/ceval-exam
+    split: val
+    ratio: 0.05
+    format: mcq_zh
+  gsm8k_train:
+    hf_id: openai/gsm8k
+    config: main
+    split: train
+    ratio: 0.05
+    format: math
+  arc_train:
+    hf_id: allenai/ai2_arc
+    config: ARC-Challenge
+    split: train
+    ratio: 0.04
+    format: arc
+  mbpp_train:
+    hf_id: google-research-datasets/mbpp
+    config: full
+    split: train
+    ratio: 0.04
+    format: code

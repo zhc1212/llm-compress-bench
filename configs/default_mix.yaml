@@ -1,0 +1,38 @@
+# Fine-tuning data mix — 6 sources
+# Used by: python prepare_data.py --mode finetune --config configs/default_mix.yaml
+sources:
+  sharegpt:
+    hf_id: shareAI/ShareGPT-Chinese-English-90k
+    ratio: 0.40
+    format: chat
+    data_files:
+      - sharegpt_jsonl/common_zh_70k.jsonl
+      - sharegpt_jsonl/common_en_70k.jsonl
+  mmlu:
+    hf_id: cais/mmlu
+    config: auxiliary_train
+    split: train
+    ratio: 0.25
+    format: mcq_en
+  gsm8k:
+    hf_id: openai/gsm8k
+    config: main
+    split: train
+    ratio: 0.20
+    format: math
+  mbpp:
+    hf_id: google-research-datasets/mbpp
+    config: full
+    split: train
+    ratio: 0.05
+    format: code
+  cmmlu:
+    hf_id: haonan-li/cmmlu
+    split: dev
+    ratio: 0.05
+    format: mcq_zh
+  ceval:
+    hf_id: ceval/ceval-exam
+    split: val
+    ratio: 0.05
+    format: mcq_zh
