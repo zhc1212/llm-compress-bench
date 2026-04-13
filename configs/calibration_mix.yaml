@@ -50,13 +50,13 @@ sources:
     hf_id: ceval/ceval-exam
     split: val
     ratio: 0.05
-    format: mcq_zh
+    format: mcq_zh_ceval
   gsm8k_train:
     hf_id: openai/gsm8k
     config: main
     split: train
     ratio: 0.05
-    format: math
+    format: qa
   arc_train:
     hf_id: allenai/ai2_arc
     config: ARC-Challenge

@@ -19,7 +19,7 @@ sources:
     config: main
     split: train
     ratio: 0.20
-    format: math
+    format: qa
   mbpp:
     hf_id: google-research-datasets/mbpp
     config: full
@@ -35,4 +35,4 @@ sources:
     hf_id: ceval/ceval-exam
     split: val
     ratio: 0.05
-    format: mcq_zh
+    format: mcq_zh_ceval

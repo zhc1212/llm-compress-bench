@@ -89,8 +89,6 @@ echo "Results will be saved to: $OUTDIR"
 
 # ── Model args ───────────────────────────────────────────────────────────────
 MODEL_ARGS="pretrained=$MODEL_PATH,dtype=$DTYPE,trust_remote_code=True"
-CHAT_FLAGS="--apply_chat_template --system_instruction $SYSTEM_INSTRUCTION --log_samples --batch_size $BATCH_SIZE"
-
 # ── Benchmark definitions ────────────────────────────────────────────────────
 # run_bench <name> <task> <num_fewshot> <type: ll|gen> [extra_flags...]
 run_bench() {
@@ -112,8 +110,10 @@ run_bench() {
     )
 
     if [[ "$btype" == "gen" ]]; then
-        # shellcheck disable=SC2206
-        cmd+=($CHAT_FLAGS)
+        cmd+=(--apply_chat_template
+              --system_instruction "$SYSTEM_INSTRUCTION"
+              --log_samples
+              --batch_size "$BATCH_SIZE")
     else
         cmd+=(--batch_size "$BATCH_SIZE")
     fi
@@ -174,7 +174,7 @@ for bench in $BENCHMARKS; do
         gsm8k_thinking)
             if [[ "$THINKING" != true ]]; then
                 echo "Warning: $bench requires --thinking flag, skipping."
-                exit 1
+                exit 0
             fi
             THINK_MODEL_ARGS="$MODEL_ARGS,enable_thinking=true"
             echo ""
@@ -199,7 +199,7 @@ for bench in $BENCHMARKS; do
         math500_thinking)
             if [[ "$THINKING" != true ]]; then
                 echo "Warning: $bench requires --thinking flag, skipping."
-                exit 1
+                exit 0
             fi
             THINK_MODEL_ARGS="$MODEL_ARGS,enable_thinking=true"
             echo ""

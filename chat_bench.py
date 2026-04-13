@@ -2,14 +2,13 @@
 """Automated chat quality benchmark for compressed LLMs.
 
 Evaluates chat quality across 8 categories using heuristic scoring (no API keys needed).
-Designed for investor demos showing that SVD-LLM compression preserves chat capability.
 
 Usage:
-    python scripts/eval_chat_bench.py \
+    python chat_bench.py \
         --model_path <path> \
         --device cuda:1 \
-        --tag "Qwen3-14B r=0.2" \
-        --output results/chat_bench/<tag>.json \
+        --tag "my-model" \
+        --output results/chat_bench/my-model.json \
         --max_new_tokens 512 \
         --enable_thinking
 """
@@ -514,27 +513,23 @@ def score_coding(response: str, expected: dict) -> tuple[int, str]:
         if not found:
             return 0, f"Must contain at least one of: {must_any}"
 
-    # Try to execute test code if provided
+    # Try to execute test code if provided (in isolated subprocess)
     test_code = expected.get("test_code")
     if test_code and must_contain:
         try:
-            with timeout(5):
-                import builtins as _bi
-                safe_builtins = {k: getattr(_bi, k) for k in (
-                    "abs", "all", "any", "bool", "dict", "enumerate", "filter",
-                    "float", "int", "isinstance", "len", "list", "map", "max",
-                    "min", "print", "range", "reversed", "round", "set",
-                    "sorted", "str", "sum", "tuple", "type", "zip", "True",
-                    "False", "None",
-                ) if hasattr(_bi, k)}
-                exec_globals: dict = {"__builtins__": safe_builtins}
-                exec(code, exec_globals)
-                exec(test_code, exec_globals)
-            return 2, "Code runs correctly and passes all test cases"
-        except TimeoutError:
+            import subprocess
+            full_code = code + "\n" + test_code
+            result = subprocess.run(
+                [sys.executable, "-c", full_code],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                return 2, "Code runs correctly and passes all test cases"
+            else:
+                stderr = result.stderr.strip().split("\n")[-1] if result.stderr else "unknown"
+                return 1, f"Code found but test failed: {stderr}"
+        except subprocess.TimeoutExpired:
             return 1, "Code found but execution timed out"
-        except AssertionError as e:
-            return 1, f"Code runs but test assertion failed: {e}"
         except Exception as e:
             return 1, f"Code found but execution error: {type(e).__name__}: {e}"
 
