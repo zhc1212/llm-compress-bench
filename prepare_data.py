@@ -18,9 +18,13 @@ Usage:
 
 from __future__ import annotations
 
+import os
+
+# Default to HF mirror for faster downloads in China; override with HF_ENDPOINT env var
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 import argparse
 import json
-import os
 import random
 from pathlib import Path
 from typing import Any
