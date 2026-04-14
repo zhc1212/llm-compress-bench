@@ -1,25 +1,11 @@
 #!/usr/bin/env python3
-"""Download datasets from Hugging Face Hub to specified locations.
-
-Usage:
-    # Download a simple dataset
-    python download_dataset --dataset "allenai/ai2_arc" --output "data/arc"
-
-    # Download with specific config and split
-    python download_dataset --dataset "cais/mmlu" --config "auxiliary_train" --split "train" --output "data/mmlu"
-
-    # Download with streaming support
-    python download_dataset --dataset "HuggingFaceFW/fineweb-edu" --split "train" --output "data/fineweb" --streaming
-
-    # Download multiple configs
-    python download_dataset --dataset "ceval/ceval-exam" --split "val" --output "data/ceval" --multiple-configs
-"""
-
-#!/usr/bin/env python3
 """Download all datasets used in prepare_data.py to specified locations.
 
 This script downloads all the datasets needed for both finetune and calibration modes.
 The datasets are saved to organized directories for easy access.
+
+Usage:
+    python download_dataset.py --output-dir ./dataset/raw/
 """
 
 from __future__ import annotations
