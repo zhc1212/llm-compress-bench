@@ -25,6 +25,8 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 # Cache datasets/models under ~/datasets/ by default; override with HF_HOME env var
 os.environ.setdefault("HF_HOME", os.path.join(os.path.expanduser("~"), "datasets"))
+# Default local dataset directory; override with RAW_DATASET_DIR env var
+os.environ.setdefault("RAW_DATASET_DIR", os.path.join(os.path.expanduser("~"), "datasets"))
 
 import argparse
 import json
@@ -252,9 +254,78 @@ def _tokenize_and_window(
 # Finetune mode: dataset loaders
 # ---------------------------------------------------------------------------
 
+def _load_sharegpt_from_local(local_path: str | Path) -> list[dict]:
+    """Load ShareGPT chat data from local JSONL files."""
+    local_path = Path(local_path)
+    results: list[dict] = []
+    skipped = 0
+
+    # Handle directory with config subdirectories
+    if local_path.is_dir():
+        jsonl_files = list(local_path.glob("**/*.jsonl"))
+        for jsonl_file in jsonl_files:
+            with open(jsonl_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                        convs = row.get("conversations") or row.get("conversation")
+                        if not convs:
+                            skipped += 1
+                            continue
+                        turns = _parse_sharegpt_conversation(convs)
+                        if turns is None:
+                            skipped += 1
+                            continue
+                        results.append({"source": "sharegpt", "conversations": turns})
+                    except Exception:
+                        skipped += 1
+                        continue
+    # Handle single JSONL file
+    elif local_path.is_file():
+        with open(local_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                    convs = row.get("conversations") or row.get("conversation")
+                    if not convs:
+                        skipped += 1
+                        continue
+                    turns = _parse_sharegpt_conversation(convs)
+                    if turns is None:
+                        skipped += 1
+                        continue
+                    results.append({"source": "sharegpt", "conversations": turns})
+                except Exception:
+                    skipped += 1
+                    continue
+
+    print(f"  [sharegpt] {len(results)} conversations ({skipped} skipped)")
+    return results
+
+
 def _load_finetune_sharegpt(spec: dict) -> list[dict]:
     """Load ShareGPT chat data as conversation dicts."""
     print("  [sharegpt] Loading ShareGPT Chinese+English chat data...")
+
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
+
+    if local_path and Path(local_path).exists():
+        print(f"  [sharegpt] Loading from local: {local_path}")
+        return _load_sharegpt_from_local(local_path)
+
+    # Download from Hugging Face
     kwargs: dict[str, Any] = {"split": "train"}
     if "data_files" in spec:
         kwargs["data_files"] = spec["data_files"]
@@ -276,9 +347,60 @@ def _load_finetune_sharegpt(spec: dict) -> list[dict]:
     return results
 
 
+def _load_jsonl_from_local(local_path: str | Path) -> list[dict]:
+    """Load data from local JSONL file."""
+    local_path = Path(local_path)
+    results = []
+
+    if local_path.is_dir():
+        jsonl_files = list(local_path.glob("**/*.jsonl"))
+    else:
+        jsonl_files = [local_path]
+
+    for jsonl_file in jsonl_files:
+        with open(jsonl_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        results.append(json.loads(line))
+                    except Exception:
+                        pass
+    return results
+
+
 def _load_finetune_mcq_en(name: str, spec: dict) -> list[dict]:
     """Load English MCQ dataset (MMLU format)."""
     print(f"  [{name}] Loading {spec['hf_id']}...")
+
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
+
+    if local_path and Path(local_path).exists():
+        print(f"  [{name}] Loading from local: {local_path}")
+        all_rows = _load_jsonl_from_local(local_path)
+        results = []
+        for row in all_rows:
+            choices = row["choices"]
+            q = (f"Question: {row['question']}\n"
+                 f"A. {choices[0]}\nB. {choices[1]}\nC. {choices[2]}\nD. {choices[3]}")
+            a = f"The answer is {_ABCD[row['answer']]}."
+            results.append({
+                "source": name,
+                "conversations": [
+                    {"role": "user", "content": q},
+                    {"role": "assistant", "content": a},
+                ],
+            })
+        print(f"  [{name}] {len(results)} samples")
+        return results
+
+    # Download from Hugging Face
     kwargs: dict[str, Any] = {"split": spec.get("split", "train"), "trust_remote_code": True}
     if "config" in spec:
         ds = load_dataset(spec["hf_id"], spec["config"], **kwargs)
@@ -305,6 +427,31 @@ def _load_finetune_mcq_en(name: str, spec: dict) -> list[dict]:
 def _load_finetune_qa(name: str, spec: dict) -> list[dict]:
     """Load QA dataset (GSM8K format)."""
     print(f"  [{name}] Loading {spec['hf_id']}...")
+
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
+
+    if local_path and Path(local_path).exists():
+        print(f"  [{name}] Loading from local: {local_path}")
+        all_rows = _load_jsonl_from_local(local_path)
+        results = []
+        for row in all_rows:
+            results.append({
+                "source": name,
+                "conversations": [
+                    {"role": "user", "content": row["question"]},
+                    {"role": "assistant", "content": row["answer"]},
+                ],
+            })
+        print(f"  [{name}] {len(results)} samples")
+        return results
+
+    # Download from Hugging Face
     kwargs: dict[str, Any] = {"split": spec.get("split", "train"), "trust_remote_code": True}
     if "config" in spec:
         ds = load_dataset(spec["hf_id"], spec["config"], **kwargs)
@@ -327,6 +474,34 @@ def _load_finetune_qa(name: str, spec: dict) -> list[dict]:
 def _load_finetune_code(name: str, spec: dict) -> list[dict]:
     """Load code dataset (MBPP format)."""
     print(f"  [{name}] Loading {spec['hf_id']}...")
+
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
+
+    if local_path and Path(local_path).exists():
+        print(f"  [{name}] Loading from local: {local_path}")
+        all_rows = _load_jsonl_from_local(local_path)
+        results = []
+        for row in all_rows:
+            test_str = "\n".join(row["test_list"])
+            q = f"Write a Python function for the following task:\n{row['text']}\n\nTest cases:\n{test_str}"
+            a = f"```python\n{row['code']}\n```"
+            results.append({
+                "source": name,
+                "conversations": [
+                    {"role": "user", "content": q},
+                    {"role": "assistant", "content": a},
+                ],
+            })
+        print(f"  [{name}] {len(results)} samples")
+        return results
+
+    # Download from Hugging Face
     kwargs: dict[str, Any] = {"split": spec.get("split", "train"), "trust_remote_code": True}
     if "config" in spec:
         ds = load_dataset(spec["hf_id"], spec["config"], **kwargs)
@@ -352,6 +527,35 @@ def _load_finetune_code(name: str, spec: dict) -> list[dict]:
 def _load_finetune_mcq_zh(name: str, spec: dict) -> list[dict]:
     """Load Chinese MCQ dataset (CMMLU format)."""
     print(f"  [{name}] Loading {spec['hf_id']} (all subjects)...")
+
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
+
+    if local_path and Path(local_path).exists():
+        print(f"  [{name}] Loading from local: {local_path}")
+        all_rows = _load_jsonl_from_local(local_path)
+        results = []
+        for row in all_rows:
+            q_text = row.get("Question") or row.get("question", "")
+            q = f"问题：{q_text}\nA. {row['A']}\nB. {row['B']}\nC. {row['C']}\nD. {row['D']}"
+            ans = row.get("Answer") or row.get("answer", "")
+            a = f"答案是 {ans}。"
+            results.append({
+                "source": name,
+                "conversations": [
+                    {"role": "user", "content": q},
+                    {"role": "assistant", "content": a},
+                ],
+            })
+        print(f"  [{name}] {len(results)} samples")
+        return results
+
+    # Download from Hugging Face
     try:
         configs = get_dataset_config_names(spec["hf_id"])
     except Exception:
@@ -414,6 +618,34 @@ def _load_finetune_mcq_zh(name: str, spec: dict) -> list[dict]:
 def _load_finetune_mcq_zh_ceval(name: str, spec: dict) -> list[dict]:
     """Load C-Eval dataset (separate handler due to different field names)."""
     print(f"  [{name}] Loading {spec['hf_id']} (all subjects)...")
+
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
+
+    if local_path and Path(local_path).exists():
+        print(f"  [{name}] Loading from local: {local_path}")
+        all_rows = _load_jsonl_from_local(local_path)
+        results = []
+        for row in all_rows:
+            q = (f"问题：{row['question']}\n"
+                 f"A. {row['A']}\nB. {row['B']}\nC. {row['C']}\nD. {row['D']}")
+            a = f"答案是 {row['answer']}。"
+            results.append({
+                "source": name,
+                "conversations": [
+                    {"role": "user", "content": q},
+                    {"role": "assistant", "content": a},
+                ],
+            })
+        print(f"  [{name}] {len(results)} samples")
+        return results
+
+    # Download from Hugging Face
     try:
         configs = get_dataset_config_names(spec["hf_id"])
     except Exception:
@@ -547,6 +779,65 @@ def _load_calib_chat(
 ) -> list[torch.LongTensor]:
     """Load ShareGPT chat data as tokenized windows."""
     print(f"  [{name}] Loading chat data...")
+
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
+
+    if local_path and Path(local_path).exists():
+        print(f"  [{name}] Loading from local: {local_path}")
+        samples: list[torch.LongTensor] = []
+        skipped = 0
+
+        local_path = Path(local_path)
+        if local_path.is_dir():
+            jsonl_files = list(local_path.glob("**/*.jsonl"))
+        else:
+            jsonl_files = [local_path]
+
+        for jsonl_file in jsonl_files:
+            with open(jsonl_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except Exception:
+                        skipped += 1
+                        continue
+
+                    convs = row.get("conversations") or row.get("conversation")
+                    if not convs:
+                        skipped += 1
+                        continue
+                    turns = _parse_sharegpt_conversation(convs)
+                    if turns is None:
+                        skipped += 1
+                        continue
+                    try:
+                        templated = tokenizer.apply_chat_template(
+                            turns, tokenize=False, add_generation_prompt=False,
+                        )
+                    except Exception:
+                        skipped += 1
+                        continue
+                    window = _tokenize_and_window(templated, tokenizer, seqlen, rng)
+                    if window is not None:
+                        samples.append(window)
+                        if len(samples) % 100 == 0:
+                            print(f"    [{name}] {len(samples)}/{target}")
+                        if len(samples) >= target:
+                            break
+
+        print(f"  [{name}] {len(samples)}/{target} (skipped {skipped})")
+        return samples
+
+    # Download from Hugging Face
     kwargs: dict[str, Any] = {"split": "train"}
     if "data_files" in spec:
         kwargs["data_files"] = spec["data_files"]
@@ -586,6 +877,56 @@ def _load_calib_text(
 ) -> list[torch.LongTensor]:
     """Load plain-text dataset as tokenized windows."""
     print(f"  [{name}] Loading text data from {spec['hf_id']}...")
+
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
+
+    if local_path and Path(local_path).exists():
+        print(f"  [{name}] Loading from local: {local_path}")
+        min_chars = spec.get("min_chars", 0)
+        text_field = spec.get("text_field", "text")
+
+        local_path = Path(local_path)
+        if local_path.is_dir():
+            jsonl_files = list(local_path.glob("**/*.jsonl"))
+        else:
+            jsonl_files = [local_path]
+
+        all_rows = []
+        for jsonl_file in jsonl_files:
+            with open(jsonl_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            all_rows.append(json.loads(line))
+                        except Exception:
+                            pass
+
+        indices = list(range(len(all_rows)))
+        rng.shuffle(indices)
+        samples: list[torch.LongTensor] = []
+        for idx in indices:
+            text = all_rows[idx].get(text_field, "")
+            if not isinstance(text, str) or len(text) < min_chars:
+                continue
+            window = _tokenize_and_window(text, tokenizer, seqlen, rng)
+            if window is not None:
+                samples.append(window)
+                if len(samples) % 100 == 0:
+                    print(f"    [{name}] {len(samples)}/{target}")
+                if len(samples) >= target:
+                    break
+
+        print(f"  [{name}] {len(samples)}/{target}")
+        return samples
+
+    # Download from Hugging Face
     streaming = spec.get("streaming", False)
     min_chars = spec.get("min_chars", 0)
     text_field = spec.get("text_field", "text")
@@ -630,30 +971,60 @@ def _load_calib_benchmark(
     fmt = spec.get("format", "qa")
     print(f"  [{name}] Loading benchmark data ({fmt})...")
 
-    # Load dataset
-    load_kwargs: dict[str, Any] = {"split": spec.get("split", "train"), "trust_remote_code": True}
+    # Check for local path
+    local_path = spec.get("local_path")
+    if not local_path:
+        raw_dataset_dir = os.environ.get("RAW_DATASET_DIR")
+        if raw_dataset_dir:
+            dataset_name = spec["hf_id"].split("/")[-1]
+            local_path = Path(raw_dataset_dir) / dataset_name
 
-    # Handle multi-config datasets (C-Eval)
-    if fmt == "mcq_zh_ceval":
-        try:
-            configs = get_dataset_config_names(spec["hf_id"])
-        except Exception:
-            configs = []
-        all_rows: list[dict] = []
-        for cfg in configs:
-            try:
-                ds = load_dataset(spec["hf_id"], cfg, **load_kwargs)
-                all_rows.extend(list(ds))
-            except Exception:
-                continue
+    if local_path and Path(local_path).exists():
+        print(f"  [{name}] Loading from local: {local_path}")
+
+        local_path = Path(local_path)
+        if local_path.is_dir():
+            jsonl_files = list(local_path.glob("**/*.jsonl"))
+        else:
+            jsonl_files = [local_path]
+
+        all_rows = []
+        for jsonl_file in jsonl_files:
+            with open(jsonl_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            all_rows.append(json.loads(line))
+                        except Exception:
+                            pass
+
         rng.shuffle(all_rows)
     else:
-        if "config" in spec:
-            ds = load_dataset(spec["hf_id"], spec["config"], **load_kwargs)
+        # Load dataset from Hugging Face
+        load_kwargs: dict[str, Any] = {"split": spec.get("split", "train"), "trust_remote_code": True}
+
+        # Handle multi-config datasets (C-Eval)
+        if fmt == "mcq_zh_ceval":
+            try:
+                configs = get_dataset_config_names(spec["hf_id"])
+            except Exception:
+                configs = []
+            all_rows: list[dict] = []
+            for cfg in configs:
+                try:
+                    ds = load_dataset(spec["hf_id"], cfg, **load_kwargs)
+                    all_rows.extend(list(ds))
+                except Exception:
+                    continue
+            rng.shuffle(all_rows)
         else:
-            ds = load_dataset(spec["hf_id"], **load_kwargs)
-        all_rows = list(ds)
-        rng.shuffle(all_rows)
+            if "config" in spec:
+                ds = load_dataset(spec["hf_id"], spec["config"], **load_kwargs)
+            else:
+                ds = load_dataset(spec["hf_id"], **load_kwargs)
+            all_rows = list(ds)
+            rng.shuffle(all_rows)
 
     # Format function based on type
     def _format_row(row: dict) -> list[dict] | None:
