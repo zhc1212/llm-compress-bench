@@ -23,6 +23,10 @@ import os
 # Default to HF mirror for faster downloads in China; override with HF_ENDPOINT env var
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
+# Cache datasets/models under <repo>/datasets/ by default; override with HF_HOME env var
+_DEFAULT_HF_HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+os.environ.setdefault("HF_HOME", _DEFAULT_HF_HOME)
+
 import argparse
 import json
 import random

@@ -7,3 +7,4 @@ results/
 *.bin
 *.safetensors
 .env
+datasets/
